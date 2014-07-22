@@ -54,7 +54,7 @@ except ImportError:
 VERSION = "0.1"
 DEFAULT_WARNING = '75%'
 DEFAULT_CRITICAL = '90%'
-MOUNTS = None 
+MOUNTS = None
 UNITS= {'B': 0,
         'KB': 1,
         'MB': 2,
@@ -69,19 +69,20 @@ def convert_to(unit,value):
     return round(float(value)/(1024**power), power)
 
 def get_df(client):
-    # We are looking for a line like 
-    #Filesystem     Type     1K-blocks      Used Available Use% Mounted on
-    #/dev/sda2      ext3      28834744  21802888   5567132  80% /
-    #udev           devtmpfs   1021660         4   1021656   1% /dev
-    #tmpfs          tmpfs       412972      1040    411932   1% /run
-    #none           tmpfs         5120         4      5116   1% /run/lock
-    #none           tmpfs      1032428     13916   1018512   2% /run/shm
-    #none           tmpfs       102400         8    102392   1% /run/user
-    #/dev/sda5      fuseblk  251536380 184620432  66915948  74% /media/ntfs
-    #/dev/sdb1      ext3     961432072 833808328  78785744  92% /media/bigdata
+    # We are looking for a line like
+    #Filesystem     1K-blocks      Used Available Use% Mounted on
+    #/dev/sda2       28834744  21802888   5567132  80% /
+    #udev             1021660         4   1021656   1% /dev
+    #tmpfs             412972      1040    411932   1% /run
+    #none                5120         4      5116   1% /run/lock
+    #none             1032428     13916   1018512   2% /run/shm
+    #none              102400         8    102392   1% /run/user
+    #/dev/sda5      251536380 184620432  66915948  74% /media/ntfs
+    #/dev/sdb1      961432072 833808328  78785744  92% /media/bigdata
 
     # Beware of the export!
-    stdin, stdout, stderr = client.exec_command('export LC_LANG=C && unset LANG && df -l -T -k -P')
+    cmd = '''df -P | grep "^/dev"'''
+    stdin, stdout, stderr = client.exec_command('export LC_LANG=C && unset LANG && %s' % cmd)
     dfs = {}
 
     for line in stdout:
@@ -89,34 +90,29 @@ def get_df(client):
         # By pass the firt line, we already know about it
         if not line or line.startswith('Filesystem'):
             continue
-        
+
         # Only keep non void elements
         tmp = [s for s in line.split(' ') if s]
-        
-        _type = tmp[1]
-        # Ok maybe we got a none or tmpfs system, if so, bailout
-        if _type in ['tmpfs', 'devtmpfs']:
-            continue
 
         #if we specify a list of mountpoints to check then verify that current line is in the list
         to_check = True
         if MOUNTS:
             to_check = False
             for mnt in MOUNTS:
-                if tmp[6].startswith(mnt):
+                if tmp[5].startswith(mnt):
                     to_check = True
-        
+
         # Maybe this mount point did not match any required mount point
         if not to_check:
             continue
 
         # Ok now grep values
         fs =  tmp[0]
-        size = int(tmp[2])*1024
-        used = int(tmp[3])*1024
-        avail = int(tmp[4])*1024
-        used_pct = int(tmp[5][:-1]) # we remove the %
-        mounted = ' '.join(tmp[6:])
+        size = int(tmp[1])*1024
+        used = int(tmp[2])*1024
+        avail = int(tmp[3])*1024
+        used_pct = int(tmp[4][:-1]) # we remove the %
+        mounted = ' '.join(tmp[5:])
         dfs[mounted] = {'fs':fs, 'size':size, 'used':used, 'avail':avail, 'used_pct':used_pct}
 
     # Before return, close the client
@@ -180,13 +176,13 @@ if __name__ == '__main__':
     s_critical = opts.critical or DEFAULT_CRITICAL
     warning, critical = schecks.get_warn_crit(s_warning, s_critical)
 
-    # Get Unit 
+    # Get Unit
     s_unit = opts.unit or 'B'
 
     # Ok now connect, and try to get values for memory
     client = schecks.connect(hostname, port, ssh_key_file, passphrase, user)
     dfs = get_df(client)
-    
+
     # Maybe we failed at getting data
     if not dfs:
         print "Error : cannot fetch disks values from host"
@@ -200,12 +196,12 @@ if __name__ == '__main__':
         used = convert_to(s_unit,df['used'])
         used_pct =  df['used_pct']
         # Let first dump the perfdata
-        
+
         _size_warn = convert_to(s_unit,df['size'] * float(warning)/100)
         _size_crit = convert_to(s_unit,df['size'] * float(critical)/100)
-        
+
         perfdata += '"%s_used_pct"=%s%%;%s%%;%s%%;0%%;100%% "%s_used"=%s%s;%s;%s;0;%s ' % (mount, used_pct, warning, critical, mount, used, s_unit, _size_warn, _size_crit, size)
-        
+
         # And compare to limits
         if used_pct >= critical:
             status = 2
@@ -213,7 +209,7 @@ if __name__ == '__main__':
 
         if used_pct >= warning and status == 0:
             status = 1
-            bad_volumes.append( (mount, used_pct) ) 
+            bad_volumes.append( (mount, used_pct) )
 
     if status == 0:
         print "Ok: all disks are in the limits | %s" % (perfdata)
@@ -224,4 +220,3 @@ if __name__ == '__main__':
     if status == 2:
         print "Critical: some disks are not good : %s | %s" % (','.join( ["%s:%s%%" % (mount, used_pct) for (mount, used_pct) in bad_volumes]), perfdata)
         sys.exit(2)
-
