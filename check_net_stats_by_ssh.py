@@ -80,7 +80,7 @@ def get_net_stats(client):
    
     # Beware of the export!
     raw = 'CHK_FILE=%s;' % DEFAULT_TEMP_FILE
-    raw += r"""date +%s;ls -l --time-style=+%s $CHK_FILE | awk '{print $6}';cat $CHK_FILE; sed 1,2d /proc/net/dev | tee $CHK_FILE"""
+    raw += r"""date +%s; stat -c %Y $CHK_FILE; cat $CHK_FILE; sed 1,2d /proc/net/dev | tee $CHK_FILE"""
     stdin, stdout, stderr = client.exec_command('export LC_LANG=C && unset LANG && %s' % raw)
 
     errors = [l for l in stderr]
